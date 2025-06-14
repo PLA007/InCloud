@@ -24,7 +24,7 @@ jobs:
         run: sudo apt-get install libpcap-dev 
            
       - name: Install Python dependencies
-        run: pip install -r https://github.com/maurosoria/dirsearch/blob/master/requirements.txt
+        run: pip install -r https://raw.githubusercontent.com/maurosoria/dirsearch/master/requirements.txt
 
       - name: Cache Go
         id: cache-go
