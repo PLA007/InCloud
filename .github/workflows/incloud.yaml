@@ -11,7 +11,7 @@ jobs:
         uses: actions/checkout@master
 
       - name: Setup golang
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v3
         with:
           go-version: 1.14
 
@@ -22,7 +22,7 @@ jobs:
 
       - name: Cache Go
         id: cache-go
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: /home/runner/go
           key: ${{ runner.os }}-go
@@ -56,7 +56,7 @@ jobs:
         
       - name: Running dirscan 
         run: |
-          wget https://raw.githubusercontent.com/maurosoria/dirsearch/master/db/dicc.txt
+          wget https://github.com/maurosoria/dirsearch/blob/master/db/dicc.txt
           mkdir dirout
           set +e ;time for i in $(cat output/active_urls.txt );do ffuf -w dicc.txt -u $i/FUZZ -t 200 -mc 200 -ac -recursion -v -of csv -o dirout/`date +%Y%m%d%H%M%S`.csv; done
           cat dirout/*.csv >> output/dirout.csv
