@@ -65,9 +65,9 @@ jobs:
       - name: Running dirscan 
         run: |
           wget https://github.com/maurosoria/dirsearch/blob/master/db/dicc.txt
-          mkdir dirout
-          set +e ;time for i in $(cat output/active_urls.txt );do ffuf -w dicc.txt -u $i/FUZZ -t 200 -mc 200 -ac -recursion -v -of csv -o dirout/`date +%Y%m%d%H%M%S`.csv; done
-          cat dirout/*.csv >> output/dirout.csv
+          mkdir -p dirout
+          ffuf -w wordlist.txt -u https://example.org/FUZZ -od dirout -of csv -or
+          cat dirout/*.csv
         shell: bash
       
 
