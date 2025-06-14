@@ -10,6 +10,11 @@ jobs:
       - name: Checkout Repo
         uses: actions/checkout@master
 
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+            python-version: '3.10'
+    
       - name: Setup golang
         uses: actions/setup-go@v3
         with:
@@ -18,7 +23,8 @@ jobs:
       - name: Setup Dependencies
         run: sudo apt-get install libpcap-dev 
            
-        
+      - name: Install Python dependencies
+        run: pip install requests  
 
       - name: Cache Go
         id: cache-go
@@ -37,13 +43,14 @@ jobs:
           go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest
           go install -v github.com/projectdiscovery/nuclei/v2/cmd/nuclei@latest
           go install -v github.com/projectdiscovery/mapcidr/cmd/mapcidr@latest
-          go install -v github.com/ffuf/ffuf@latest
+          go install -v github.com/maurosoria/dirsearch@latest
         shell: bash
 
 
       - name: Running SubFinder for passive DNS enumeration
         run: |
-          SUBFIGER_CONFIG_DIR=$(pwd)/config subfinder -dL input/domains.txt -o output/passive_subdomains.txt
+          export SUBFIGER_CONFIG_DIR=$(pwd)/config
+          subfinder -dL input/domains.txt -o output/passive_subdomains.txt
         shell: bash
 
       - name: Running dnsx for valid DNS filtering 
@@ -64,10 +71,12 @@ jobs:
         shell: bash
       - name: Running dirscan 
         run: |
-          wget https://github.com/maurosoria/dirsearch/blob/master/db/dicc.txt
-          mkdir -p dirout
-          ffuf -w wordlist.txt -u https://example.org/FUZZ -od dirout -of csv -or
-          cat dirout/*.csv
+          while read url; do
+              python3 dirsearch/dirsearch.py -u "$url" -e php,html,js,json \
+                --plain-text-report=output/dirsearch_$(echo $url | sed 's/[^a-zA-Z0-9]/_/g').txt
+          done < output/active_urls.txt
+          cat output/dirsearch_*.txt > output/dirsearch_results.txt
+          tar -czvf output/dirsearch_results.tar.gz output/dirsearch_results.txt
         shell: bash
       
 
