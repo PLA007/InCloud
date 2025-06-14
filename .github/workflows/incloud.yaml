@@ -24,7 +24,7 @@ jobs:
         run: sudo apt-get install libpcap-dev 
            
       - name: Install Python dependencies
-        run: pip install requests  
+        run: pip install -r https://github.com/maurosoria/dirsearch/blob/master/requirements.txt
 
       - name: Cache Go
         id: cache-go
@@ -49,8 +49,8 @@ jobs:
 
       - name: Running SubFinder for passive DNS enumeration
         run: |
-          export SUBFIGER_CONFIG_DIR=$(pwd)/config
-          subfinder -dL input/domains.txt -o output/passive_subdomains.txt
+          rm -f ~/.config/subfinder/provider-config.yaml 2>/dev/null || true
+          subfinder -dL input/domains.txt --config config/subfinder-config.yaml -o output/passive_subdomains.txt
         shell: bash
 
       - name: Running dnsx for valid DNS filtering 
