@@ -74,7 +74,7 @@ jobs:
           while read url; do
             safe_name=$(echo "$url" | sed 's/[^a-zA-Z0-9]/_/g')
             python3 dirsearch/dirsearch.py -u "$url" -e php,html,js,json \
-                -o "output/dirsearch_${safe_name}.txt" \
+                -o "output/dirsearch_${safe_name}.txt"
                 --format plain
             sleep 1
            done < output/active_urls.txt
