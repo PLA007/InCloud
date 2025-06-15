@@ -58,16 +58,13 @@ jobs:
          mkdir -p output
          while read domain; do
              [ -z "$domain" ] && continue 
-             curl -s "https://crt.sh/?q=${domain}&output=json" \
-                  -H "User-Agent: Mozilla/5.0" \
-                  | jq -r '.[].common_name,.[].name_value'
+             curl -s "https://crt.sh/?q=${domain}&output=json" -H "User-Agent: Mozilla/5.0" | jq -r '.[].common_name,.[].name_value'
           done < input/domains.txt | sort -u > output/crt_sh_domains.txt
         shell: bash
 
       - name: Running dnsx for valid DNS filtering 
         run: |
-          cat output/passive_subdomains.txt output/crt_sh_domains.txt | \
-            dnsx -t 50 > output/active_subdomains.txt
+          cat output/passive_subdomains.txt output/crt_sh_domains.txt | dnsx -t 50 > output/active_subdomains.txt
         shell: bash
 
       #- name: Running naabu to check top 1000 ports
@@ -93,8 +90,7 @@ jobs:
                     query="domain=\"$domain\" && country=\"CN\" && status_code=\"200\""
                     query_base64=$(echo -n "$query" | base64 | tr -d '\n')
                     sign=$(echo -n "${FOFA_EMAIL}${FOFA_KEY}${query_base64}${size}${fields}${page}" | md5sum | awk '{print $1}')
-                    result=$(curl -s "https://fofa.info/api/v1/search/all?email=${FOFA_EMAIL}&key=${FOFA_KEY}&qbase64=${query_base64}&size=${size}&page=${page}&fields=${fields}&sign=${sign}" \
-                      -H "User-Agent: GitHub-Actions")
+                    result=$(curl -s "https://fofa.info/api/v1/search/all?email=${FOFA_EMAIL}&key=${FOFA_KEY}&qbase64=${query_base64}&size=${size}&page=${page}&fields=${fields}&sign=${sign}" -H "User-Agent: GitHub-Actions")
                     count=$(echo "$result" | jq -r '.size')
                     echo "$result" | jq -r '.results[] | [.host,.domain,.ip,.port] | @csv' >> output/fofa_results.csv
                     echo "  页码 [$page] 获取 $count 条结果"
@@ -122,19 +118,18 @@ jobs:
           httpx -l output/passive_subdomains.txt -mc 200,302 | tee output/active_urls.txt
         shell: bash
         
-      - name: Running dirscan 
-        run: |
-          while read url; do
-            safe_name=$(echo "$url" | sed 's/[^a-zA-Z0-9]/_/g')
-            python3 dirsearch/dirsearch.py -u "$url" \
-                -o "output/dirsearch_${safe_name}.txt"
-            sleep 1
-           done < output/active_urls.txt
-           cat output/dirsearch_*.txt > output/dirsearch_results.txt
-           tar -czvf output/dirsearch_results.tar.gz output/dirsearch_results.txt
-        shell: bash
+     # - name: Running dirscan 
+      #  run: |
+       #   while read url; do
+        #    safe_name=$(echo "$url" | sed 's/[^a-zA-Z0-9]/_/g')
+         #   python3 dirsearch/dirsearch.py -u "$url" \
+          #      -o "output/dirsearch_${safe_name}.txt"
+           # sleep 1
+           #done < output/active_urls.txt
+           #cat output/dirsearch_*.txt > output/dirsearch_results.txt
+           #tar -czvf output/dirsearch_results.tar.gz output/dirsearch_results.txt
+     #   shell: bash
       
-
       - name: Sorting the output results
         run: |
           find output -type f -exec sort {} -o {} \;
@@ -144,7 +139,7 @@ jobs:
         run: |
           git add output/active_urls.txt
           git add output/fofa_results.csv
-          git add output/dirsearch_results.tar.gz
+        # git add output/dirsearch_results.tar.gz
       - name: Commit results to Github
         run: |
           git config --local user.email "hacker_8171@qq.com"
