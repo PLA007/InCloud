@@ -64,7 +64,7 @@ jobs:
 
       - name: Running dnsx for valid DNS filtering 
         run: |
-          cat output/passive_subdomains.txt output/crt_sh_domains.txt | dnsx -t 50 > output/active_subdomains.txt
+          cat output/passive_subdomains.txt output/crt_sh_domains.txt | sort -u | dnsx -t 50 | tee output/active_subdomains.txt
         shell: bash
 
       #- name: Running naabu to check top 1000 ports
@@ -78,7 +78,7 @@ jobs:
             FOFA_KEY: ${{ secrets.FOFA_KEY }}
         run: |
             mkdir -p output/fofa
-            fields="host,title,ip,domain,port,server,status_code"
+            fields="host"
             size=1000  # 每页结果数（FOFA API上限）
             max_pages=5
             fofa_query() {
@@ -90,11 +90,14 @@ jobs:
                     query="domain=\"$domain\" && country=\"CN\" && status_code=\"200\""
                     query_base64=$(echo -n "$query" | base64 | tr -d '\n')
                     sign=$(echo -n "${FOFA_EMAIL}${FOFA_KEY}${query_base64}${size}${fields}${page}" | md5sum | awk '{print $1}')
-                    result=$(curl -s "https://fofa.info/api/v1/search/all?email=${FOFA_EMAIL}&key=${FOFA_KEY}&qbase64=${query_base64}&size=${size}&page=${page}&fields=${fields}&sign=${sign}" -H "User-Agent: GitHub-Actions")
-                    count=$(echo "$result" | jq -r '.size')
-                    echo "$result" | jq -r '.results[] | [.host,.domain,.ip,.port] | @csv' >> output/fofa_results.csv
-                    echo "  页码 [$page] 获取 $count 条结果"
+                    result=$(curl -s "https://fofa.info/api/v1/search/all?email=${FOFA_EMAIL}&key=${FOFA_KEY}&qbase64=${query_base64}&size=${size}&page=${page}&fields=${fields}&sign=${sign}"  -H "User-Agent: GitHub-Actions")
+                    if echo "$result" | jq -e '.error' >/dev/null; then
+                        echo "错误: $(echo "$result" | jq -r '.error')"
+                        break
+                    fi
+                    count=$(echo "$result" | jq -r '.results[].host' | tee -a output/fofa_hosts.txt | wc -l)
                     total=$((total + count))
+                    echo "  页码 [$page] 获取 $count 条host"
                     [ $count -lt $size ] && break
                     page=$((page + 1))
                     sleep 1
@@ -106,9 +109,11 @@ jobs:
                   [ -z "$domain" ] && continue
                   fofa_query "$domain"
             done < input/domains.txt
-            if [ -f "output/fofa_results.csv" ]; then
-              cut -d, -f1 output/fofa_results.csv | sed 's/"//g' | sort -u > output/fofa_urls.txt
-              echo "总计发现唯一URL: $(wc -l < output/fofa_urls.txt) 个"
+            if [ -f "output/fofa_hosts.txt" ]; then
+                sort -u output/fofa_hosts.txt -o output/fofa_hosts.txt
+                echo "唯一host数量: $(wc -l < output/fofa_hosts.txt)"
+            else
+                echo "未获取到有效结果"
             fi
         shell: bash
         
