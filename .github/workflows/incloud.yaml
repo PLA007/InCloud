@@ -14,14 +14,17 @@ jobs:
         uses: actions/setup-python@v4
         with:
             python-version: '3.10'
-    
+          
       - name: Setup golang
         uses: actions/setup-go@v3
         with:
           go-version: 1.23
 
-      - name: Setup Dependencies
-        run: sudo apt-get install libpcap-dev 
+      - name: Setup Dependencies 
+        run: |
+          sudo apt-get install libpcap-dev
+          sudo apt-get update
+          sudo apt-get install -y libpcap-dev jq          
            
       - name: Install Python dependencies
         run: pip install -r https://raw.githubusercontent.com/maurosoria/dirsearch/master/requirements.txt
@@ -39,41 +42,91 @@ jobs:
         run: |
           go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
           go install -v github.com/projectdiscovery/dnsx/cmd/dnsx@latest
-          go install -v github.com/projectdiscovery/naabu/v2/cmd/naabu@latest
           go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest
-          go install -v github.com/projectdiscovery/nuclei/v2/cmd/nuclei@latest
+          go install -v github.com/projectdiscovery/naabu/v2/cmd/naabu@latest
           go install -v github.com/projectdiscovery/mapcidr/cmd/mapcidr@latest
           git clone https://github.com/maurosoria/dirsearch.git --depth 1
         shell: bash
 
-
       - name: Running SubFinder for passive DNS enumeration
         run: |
-          rm -f ~/.config/subfinder/provider-config.yaml 2>/dev/null || true
-          subfinder -dL input/domains.txt --config config/subfinder-config.yaml -o output/passive_subdomains.txt
+          subfinder -dL input/domains.txt -config config/subfinder-config.yaml -o output/passive_subdomains.txt
+        shell: bash
+        
+      - name: Query SSL certificates from crt.sh
+        run: |
+         mkdir -p output
+         while read domain; do
+             [ -z "$domain" ] && continue 
+             curl -s "https://crt.sh/?q=${domain}&output=json" \
+                  -H "User-Agent: Mozilla/5.0" \
+                  | jq -r '.[].common_name,.[].name_value'
+          done < input/domains.txt | sort -u > output/crt_sh_domains.txt
         shell: bash
 
       - name: Running dnsx for valid DNS filtering 
         run: |
-          dnsx -l output/passive_subdomains.txt -t 50 | tee output/active_subdomains.txt
+          cat output/passive_subdomains.txt output/crt_sh_domains.txt | \
+            dnsx -t 50 > output/active_subdomains.txt
         shell: bash
 
       #- name: Running naabu to check top 1000 ports
         #run: |
          # naabu -list output/active_subdomains.txt  -rate 10000 -top-ports 100 | tee output/active_ports.txt
        # shell: bash
-
-
+       
+      - name: FOFA Paginated Query
+        env:
+            FOFA_EMAIL: ${{ secrets.FOFA_EMAIL }}
+            FOFA_KEY: ${{ secrets.FOFA_KEY }}
+        run: |
+            mkdir -p output/fofa
+            fields="host,title,ip,domain,port,server,status_code"
+            size=1000  # 每页结果数（FOFA API上限）
+            max_pages=5
+            fofa_query() {
+                local domain=$1
+                local page=1
+                local total=0
+                echo "开始查询: $domain"
+                while [ $page -le $max_pages ]; do
+                    query="domain=\"$domain\" && country=\"CN\" && status_code=\"200\""
+                    query_base64=$(echo -n "$query" | base64 | tr -d '\n')
+                    sign=$(echo -n "${FOFA_EMAIL}${FOFA_KEY}${query_base64}${size}${fields}${page}" | md5sum | awk '{print $1}')
+                    result=$(curl -s "https://fofa.info/api/v1/search/all?email=${FOFA_EMAIL}&key=${FOFA_KEY}&qbase64=${query_base64}&size=${size}&page=${page}&fields=${fields}&sign=${sign}" \
+                      -H "User-Agent: GitHub-Actions")
+                    count=$(echo "$result" | jq -r '.size')
+                    echo "$result" | jq -r '.results[] | [.host,.domain,.ip,.port] | @csv' >> output/fofa_results.csv
+                    echo "  页码 [$page] 获取 $count 条结果"
+                    total=$((total + count))
+                    [ $count -lt $size ] && break
+                    page=$((page + 1))
+                    sleep 1
+              done
+              echo "域名 $domain 查询完成，共发现 $total 条资产"
+            }
+            while read raw_domain; do
+                  domain=$(echo "$raw_domain" | xargs)
+                  [ -z "$domain" ] && continue
+                  fofa_query "$domain"
+            done < input/domains.txt
+            if [ -f "output/fofa_results.csv" ]; then
+              cut -d, -f1 output/fofa_results.csv | sed 's/"//g' | sort -u > output/fofa_urls.txt
+              echo "总计发现唯一URL: $(wc -l < output/fofa_urls.txt) 个"
+            fi
+        shell: bash
+        
       - name: Running httpx for HTTP webservers probbing
         run: |
           httpx -l output/passive_subdomains.txt -title
-          httpx -l output/passive_subdomains.txt | tee output/active_urls.txt
+          httpx -l output/passive_subdomains.txt -mc 200,302 | tee output/active_urls.txt
         shell: bash
+        
       - name: Running dirscan 
         run: |
           while read url; do
             safe_name=$(echo "$url" | sed 's/[^a-zA-Z0-9]/_/g')
-            python3 dirsearch/dirsearch.py -u "$url" -e php,html,js,json \
+            python3 dirsearch/dirsearch.py -u "$url" \
                 -o "output/dirsearch_${safe_name}.txt"
             sleep 1
            done < output/active_urls.txt
@@ -90,7 +143,8 @@ jobs:
       - name: Create local changes
         run: |
           git add output/active_urls.txt
-          git add output/dirout.tar.csv
+          git add output/fofa_results.csv
+          git add output/dirsearch_results.tar.gz
       - name: Commit results to Github
         run: |
           git config --local user.email "hacker_8171@qq.com"
